@@ -1,138 +1,44 @@
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.encoders import jsonable_encoder
-from fastapi import FastAPI, Request
-from flaskwebgui import FlaskUI
+from tkinter import messagebox
 from datetime import datetime
-from time import sleep
+from tkinter import ttk
+import tkinter as tk
+import pandas as pd
+import configparser
+import webbrowser
 import threading
-import uvicorn
 import winreg
-import json
+import shutil
+import gdown
+import time
 import sys
+import csv
 import vdf
 import os
 
-app = FastAPI()
+VERSION = "v001-DEBUGBuild"
+config = configparser.RawConfigParser()
 now = datetime.now()
 dt = now.strftime("%d/%m/%Y %H:%M:%S")
-templates = Jinja2Templates(directory="templates")
-VERSION = "v001"
+config_path = f"{os.environ['APPDATA']}/CitiesModCompatibilityChecker"
+config_file_path = os.path.join(f"{os.environ['APPDATA']}/CitiesModCompatibilityChecker", "ClientConfig.ini")
 
 
-class bcolors:
-    HEADER = "\033[95m"
-    OKBLUE = "\033[94m"
-    OKCYAN = "\033[96m"
-    OKGREEN = "\033[92m"
-    WARNING = "\033[93m"
-    FAIL = "\033[91m"
-    ENDC = "\033[0m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
+def add_line(text, args):
+    time.sleep(0.1)
+    tk.Label(args[0], text=text, wraplength=280).pack()
+    args[0].update_idletasks()
+    args[1].configure(scrollregion=args[1].bbox("all"))
+    args[1].yview_moveto(1)
 
 
-class DebugLogger:
-    def __init__(self):
-        pass
-
-    @staticmethod
-    def testing(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.OKCYAN}TEST{bcolors.ENDC}] "
-            + f"{bcolors.OKCYAN}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def critical(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.FAIL}CRITICAL{bcolors.ENDC}] "
-            + f"{bcolors.FAIL}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def warning(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.WARNING}WARNING{bcolors.ENDC}] "
-            + f"{bcolors.WARNING}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def info(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.OKGREEN}INFO{bcolors.ENDC}] "
-            + f"{bcolors.OKGREEN}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def success(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.OKGREEN}SUCCESS{bcolors.ENDC}] "
-            + f"{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.OKGREEN}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def fail(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.FAIL}FAIL{bcolors.ENDC}] "
-            + f"{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.FAIL}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def warn(message):
-        print(
-            f"{dt}: [MSS] LOG_TYPE: "
-            + f"[{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.WARNING}WARN{bcolors.ENDC}] "
-            + f"{bcolors.BOLD}{bcolors.UNDERLINE}{bcolors.WARNING}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def instruction(message):
-        print(
-            "LOG_LEVEL: [MM_LOG] LOG_TYPE: [INSTRUCTION] "
-            + f"{bcolors.UNDERLINE}{message}{bcolors.ENDC}"
-        )
-
-    @staticmethod
-    def dev(message):
-        print(
-            "LOG_LEVEL: [MM_LOG] LOG_TYPE: [DEVELOPMENT] "
-            + f"{bcolors.BOLD}{message}{bcolors.ENDC}"
-        )
-
-
-log = DebugLogger()
-
-
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.get('/keepalive', response_class=JSONResponse)
-def root(request: Request):
-    return JSONResponse(content=jsonable_encoder({"message": "client up and running!",
-                                                  "referer": f"{request.client.host}{':' + str(request.client.port) if request.client.port else ''}"}))
-
-
-os.system("title " + "CitiesModChecker - t2v @ 2023")
-
-
-def get_steam_library_folders():
+def get_steam_library_folders(args):
     try:
-        log.testing("Finding Steam Install Location...")
+        add_line("Finding Steam Install Location...", args)
         steam_registry_path = r"SOFTWARE\WOW6432Node\Valve\Steam"
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, steam_registry_path) as key:
             steam_path = winreg.QueryValueEx(key, "InstallPath")[0]
-        log.success(f"Found {steam_path}")
 
-        log.testing("Finding Steam Library Folders...")
+        add_line("Finding Steam Library Folders...", args)
         vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
         with open(vdf_path, "r") as file:
             content = file.read()
@@ -144,111 +50,306 @@ def get_steam_library_folders():
                 if path:
                     paths.append(path)
             for folder in paths:
-                log.success(f"Found: {folder}")
+                add_line(f"Found: {folder}", args)
         return paths
     except Exception as e:
-        log.critical("Error: " + str(e))
+        print("Error: ", e)
 
 
 def grab_mods_list(cities_dir):
-    log.testing("Grabbing Mods List...")
     mods_list = []
     for root, dirs, files in os.walk(cities_dir + '/steamapps/workshop/content/255710'):
         for subdir in dirs:
             path_parts = subdir.split('\\')
             mod_id_part = path_parts[-1]
             mods_list.append(mod_id_part)
-    # for mod_id in mods_list:
-    #    add_line(f"Mod Found. ID: {mod_id}")
-    log.info(f"Mods List: {mods_list}")
     return mods_list
 
 
-def grab_game_version(cities_dir):
-    log.testing("Grabbing Game version...")
-    with open(cities_dir + '/steamapps/appmanifest_255710.acf', 'r') as manifest_file:
-        manifest_data = manifest_file.read()
-        version_start = manifest_data.find('"buildid"') + len('"buildid"') + 2
-        version_end = manifest_data.find('\n', version_start) - 1
-        version = manifest_data[version_start:version_end]
-        log.info(f"Cities Skylines Version: {version}")
-        return version
-
-
-def grab_dlc_info(cities_dir):
-    log.testing("Checking for DLC Unlockers...")
-    creamapi_files = ['CreamAPI.dll', 'cream_api.ini']
-    smokeapi_files = ['SmokeAPI64.dll', 'SmokeAPI.json']
-    dlc_unlocker = []
-    base_dir = cities_dir + "/steamapps/common/Cities_Skylines/"
-    for op in creamapi_files:
-        if os.path.exists(base_dir + op):
-            dlc_unlocker.append(True)
+def run_mod_checker(args):
+    library_folders = get_steam_library_folders(args)
+    add_line(f"Checking for Cities Skylines...", args)
+    cities_skylines_dir = None
+    for folder in library_folders:
+        sanitised_folder = folder.replace("\\", "/") + '/steamapps/common/Cities_Skylines'
+        if os.path.isdir(sanitised_folder):
+            add_line(f"{sanitised_folder}. Found! Setting to Default", args)
+            cities_skylines_dir = folder.replace("\\", "/")
             break
-        pass
-    for op in smokeapi_files:
-        if os.path.exists(base_dir + op):
-            dlc_unlocker.append(True)
-            break
-        pass
-    dlc_unlocker_list = []
-    if dlc_unlocker[0]:
-        log.success("CreamAPI Found...")
-        dlc_unlocker_list.append("CreamAPI")
-    else:
-        log.warn("CreamAPI Not Found...")
-        dlc_unlocker_list.append(None)
-    if dlc_unlocker[1]:
-        log.success("SmokeAPI Found...")
-        dlc_unlocker_list.append("SmokeAPI")
-    else:
-        log.warn("SmokeAPI Not Found...")
-        dlc_unlocker_list.append(None)
-    return dlc_unlocker_list
+        add_line(f"{sanitised_folder}. Not Found. Skipping...", args)
+
+    add_line("Grabbing Mods List..", args)
+    mods_list = grab_mods_list(cities_skylines_dir)
+    txt_path = os.path.join(config_path, "LocalCitiesModList.txt")
+    if os.path.exists(txt_path):
+        os.remove(txt_path)
+    with open(txt_path, 'w') as f:
+        for mod_id in mods_list:
+            f.write(f"{mod_id}\n")
+    add_line(f"Mods List Completed: {mods_list}", args)
+    config.read(config_file_path)
+    config.set('LastUpdated', 'sys_list_last_updated', str(dt))
+    config.set('ProgramFiles', 'modlist_path', "./LocalCitiesModList.txt")
+    with open(config_file_path, 'w') as f:
+        config.write(f)
+    args[3][1].set(config.get('LastUpdated', 'sys_list_last_updated'))
+    load_config(args)
+    add_line("System Check Completed", args)
 
 
-@app.get('/API/RequestSystemCheck')
-def run_checker_thread():
-    log.info("Starting Cities Skylines Mod Compatibility Checker...")
+def run_mod_list_downloader(args):
+    add_line("Starting Mod List Spreadsheet Update...", args)
+    xlsx_path = os.path.join(config_path, "CitiesModCompatibilityList.xlsx")
+    if os.path.exists(xlsx_path):
+        add_line("Old Version Found. Deleting...", args)
+        os.remove(xlsx_path)
     try:
-        library_folders = get_steam_library_folders()
-        log.testing(f"Checking for Cities Skylines...")
-        cities_skylines_dir = None
-        for folder in library_folders:
-            sanitised_folder = folder.replace("\\", "/") + '/steamapps/common/Cities_Skylines'
-            if os.path.isdir(sanitised_folder):
-                log.success(f"{sanitised_folder}. Found! Setting to Default")
-                cities_skylines_dir = folder.replace("\\", "/")
-                break
-            log.warn(f"{sanitised_folder}. Not Found. Skipping...")
-        log.info('Creating Information Payload...')
-        log.success('Checker Finished Successfully.')
-        cities_payload = {
-            "CitiesSkylinesModCompatibilityChecker": {
-                "Version": VERSION,
-                "PayLoad": {
-                    "ModList": json.dumps(grab_mods_list(cities_skylines_dir)),
-                    "GameVersion": grab_game_version(cities_skylines_dir).replace('"', ''),
-                    "DlcInfo": json.dumps(grab_dlc_info(cities_skylines_dir))
-                }
-            }
-        }
-        return JSONResponse(content=jsonable_encoder(cities_payload))
+        add_line("Beginning xlsx Download...", args)
+        gdown.download(id="1mVFkj_7ij4FLzKs2QJaONNmb9Z-SRqUeG6xFGqEX1ew", output=xlsx_path, quiet=True)
+        add_line("Download was Successful.", args)
+        pass
+    except:
+        add_line("Download Failed. Please place the csv in the config directory and edit ClientConfig.ini", args)
+        add_line("You can download an updated csv at https://pdxint.at/BrokenModCS", args)
+        args[3][0].set("Failed to Download.")
+        return None
+    add_line("Converting xlsx File to csv...", args)
+    if os.path.exists(xlsx_path.replace("xlsx", "csv")):
+        add_line("Old Version Found. Deleting...", args)
+        os.remove(xlsx_path.replace("xlsx", "csv"))
+    try:
+        f = pd.read_excel(xlsx_path)
+        f.to_csv(xlsx_path.replace("xlsx", "csv"), index=False)
+        if os.path.exists(xlsx_path):
+            add_line("Deleting Old xlsx File...", args)
+            os.remove(xlsx_path)
+        add_line("Converted xlsx File to csv.", args)
+        config.read(config_file_path)
+        config.set('LastUpdated', 'mod_list_last_updated', str(dt))
+        config.set('ProgramFiles', 'cities_mod_csv', './CitiesModCompatibilityList.csv')
+        with open(config_file_path, 'w') as f:
+            config.write(f)
+        args[3][0].set(config.get('LastUpdated', 'mod_list_last_updated'))
+        load_config(args)
+        add_line("Mod List Spreadsheet Updated Successfully.", args)
+    except Exception as e:
+        print(e)
+        add_line("Failed to Convert xlsx File to csv. Permissions?", args)
+        args[3][0].set("Failed to Download.")
 
-    except KeyboardInterrupt:
-        log.warn("Shutting down...")
-        sys.exit("Process Closed")
+
+def compare_mods(args, progressbar):
+    add_line("Generating Compatibility Report. Hang Tight...", args)
+    progressbar.step(10)
+    progressbar.update()
+    config.read(config_file_path)
+    add_line("Grabbing Local Mod List...", args)
+    progressbar.step(10)
+    progressbar.update()
+    with open(str(config.get('ProgramFiles', 'modlist_path').replace("./", f"{config_path}/")), 'r') as txt_file:
+        txt_ids = [line.strip() for line in txt_file]
+    csv_ids = []
+    progressbar.step(10)
+    progressbar.update()
+    add_line("Grabbing CSV Mod List...", args)
+    with open(str(config.get('ProgramFiles', 'cities_mod_csv').replace("./", f"{config_path}/")), 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            progressbar.step(2)
+            progressbar.update()
+            csv_ids.append(row[3])
+    add_line("Checking for Incompatible Mods...", args)
+    progressbar.step(30)
+    progressbar.update()
+    completely_incompatible_mod_ids = list(set(txt_ids) & set(csv_ids))
+    progressbar['value'] = 100
+    progressbar.update()
+
+
+# for id in completely_incompatible_mod_ids:
+#    print(id)
+
+def report_generation_window(args):
+    rg_window = tk.Toplevel()
+    rg_window.title("Confirmation")
+    rg_window.geometry("400x150")
+    tk.Label(rg_window, text="Generating a Mod Compatibility Report... Hang Tight... ").pack()
+    progressbar = ttk.Progressbar(rg_window, style='TProgressbar')
+    progressbar['orient'] = 'horizontal'
+    progressbar['length'] = 300
+    progressbar['mode'] = 'determinate'
+    progressbar.pack()
+    progressbar["value"] = 0
+    compare_mods(args, progressbar)
+
+
+def cancel_mod_checker():
+    sys.exit('Cancelling...')
+
+
+def create_config(args):
+    add_line("Generating Program Configuration...", args)
+    config.read(config_file_path)
+    config.add_section('LastUpdated')
+    config.set('LastUpdated', 'mod_list_last_updated', "Not Run Yet")
+    config.set('LastUpdated', 'sys_list_last_updated', "Not Run Yet")
+    config.add_section('ProgramFiles')
+    config.set('ProgramFiles', 'modlist_path', "Not Generated Yet")
+    config.set('ProgramFiles', 'cities_mod_csv', "Not Generated Yet")
+    config.set('ProgramFiles', 'debug_log_path', "./debug.log")
+
+    with open(config_file_path, 'w') as f:
+        config.write(f)
+    with open(config_file_path, 'r') as original:
+        data = original.read()
+    with open(config_file_path, 'w') as modified:
+        modified.write("; CitiesModCompatibilityChecker by t2v @ 2023 - ClientConfig.ini\n" + data)
+
+    add_line("Configuration Generated.", args)
+    load_config(args)
+    try:
+        pass
+    except:
+        add_line("Failed to Create Config. Permissions?", args)
+
+
+def load_config(args):
+    tk.Label(args[0], text="Loading Configuration...", wraplength=280).pack()
+    config_dir = f"{os.environ['APPDATA']}/CitiesModCompatibilityChecker"
+    if os.path.isdir(config_dir):
+        add_line("Config Directory Found. Attempting to Load ClientConfig.ini...", args)
+        if os.path.exists(config_file_path):
+            try:
+                with open(config_file_path, 'r') as f:
+                    config.read_file(f)
+                    args[3][0].set(config.get('LastUpdated', 'mod_list_last_updated'))
+                    args[3][1].set(config.get('LastUpdated', 'sys_list_last_updated'))
+                    f.close()
+                add_line("ClientConfig.ini Loaded.", args)
+                gen_compare_mods_button(args)
+            except configparser.NoSectionError:
+                add_line("Config File is wrong or Corrupt. Attempting Fix...", args)
+                create_config(args)
+            except Exception:
+                add_line("Failed to open config file. Permissions?", args)
+                pass
+        else:
+            add_line("ClientConfig.ini Not Found.", args)
+            create_config(args)
+    else:
+        add_line("Previous Configuration Not Found.", args)
+        os.makedirs(config_dir)
+        create_config(args)
+
+
+def gen_compare_mods_button(args):
+    config.read(config_file_path)
+    if config.get('ProgramFiles', 'cities_mod_csv') and config.get('ProgramFiles',
+                                                                   'modlist_path') != "Not Generated Yet":
+        try:
+            eb = args[4].nametowidget("compare_mods_button")
+            if eb:
+                eb.destroy()
+        except KeyError:
+            pass
+        ttk.Button(args[4], text="Generate Report", command=lambda: report_generation_window(args),
+                   name="compare_mods_button").pack(anchor="w")
+        try:
+            eb = args[4].nametowidget("generating_loader")
+            if eb:
+                eb.destroy()
+        except KeyError:
+            pass
+        tk.Label(args[4], textvariable=args[3][2], name="generating_loader").pack(anchor="w")
+
+
+def show_help():
+    messagebox.showinfo("Help", 'How to use CitiesModCompatibilityChecker.\n1. Run '
+                                '"Download Latest Mod List" and wait for it to '
+                                'complete.\n2. Run "Check System" and wait for it to '
+                                'complete.\n 3. CMC should automatically refresh the '
+                                'configuration but in the case it doesnt, '
+                                'press "Refresh Config".\n4. You should now see a '
+                                '"Compare Mods" button, click that to compare your '
+                                'mods.\n5. You can check the Mods Compatibilty Report '
+                                'by hitting the "view report" link.')
+
+
+def open_link(link):
+    webbrowser.open(link, new=1)
+
+
+def delete_confirmation_window():
+    confirmation_window = tk.Toplevel()
+    confirmation_window.title("Confirmation")
+    tk.Label(confirmation_window, text="This will delete all files generated by CMCC.").pack()
+    tk.Label(confirmation_window, text="You will need to rerun everything.").pack()
+    tk.Label(confirmation_window, text="The program will exit after deletion.").pack()
+    tk.Button(confirmation_window, text="Confirm", command=confirm_action).pack(side="left")
+    tk.Button(confirmation_window, text="Cancel", command=lambda: confirmation_window.destroy()).pack(side="left")
+
+
+def confirm_action():
+    shutil.rmtree(config_path)
+    messagebox.showinfo("Information", "Data Deleted. The Program will now exit.")
+    sys.exit("Exiting...")
+
+
+def create_window():
+    window = tk.Tk()
+    window.title("CitiesModChecker - t2v.city @ 2023")
+    window.geometry("450x300")
+    window.resizable(False, False)
+
+    button_frame = tk.Frame(window)
+    button_frame.pack(side="left", fill="y")
+
+    mod_list_update = tk.StringVar()
+    sys_list_update = tk.StringVar()
+    generating_loader = tk.StringVar()
+    config_label_vars = [mod_list_update, sys_list_update, generating_loader]
+
+    ttk.Button(button_frame, text="Download Latest Mods List",
+               command=lambda: run_mod_list_downloader(tkinter_info)).pack(anchor="w")
+    ttk.Button(button_frame, text="Check System",
+               command=lambda: run_mod_checker(tkinter_info)).pack(anchor="w")
+
+    tk.Label(button_frame, text="Last Mods List Update: ").pack(anchor="w")
+    tk.Label(button_frame, textvariable=mod_list_update).pack(anchor="w")
+    tk.Label(button_frame, text="Last System Check Update: ").pack(anchor="w")
+    tk.Label(button_frame, textvariable=sys_list_update).pack(anchor="w")
+
+    ttk.Button(button_frame, text="Refresh Config",
+               command=lambda: load_config(tkinter_info)).pack(anchor="w")
+    ttk.Button(button_frame, text="Delete Data",
+               command=lambda: delete_confirmation_window()).pack(anchor="w")
+
+    ttk.Button(button_frame, text="Close", command=cancel_mod_checker).pack(side="bottom", anchor="w")
+    tk.Label(button_frame, text="Version: " + VERSION).pack(side="bottom", anchor="w")
+    # site = tk.Label(window, text="t2v @ 2023", cursor="hand2")
+    # site.pack(side="bottom", anchor="w")
+    # site.bind("<Button-1>", lambda: open_link("https://t2v.city"))
+    help = tk.Label(window, text="Need Help?", cursor="hand2")
+    help.pack(side="bottom", anchor="w")
+    help.bind("<Button-1>", lambda event: show_help())
+
+    canvas = tk.Canvas(window)
+    canvas.pack(side="right", fill="both", expand=True)
+    scrollbar = ttk.Scrollbar(window, orient="vertical", command=canvas.yview)
+    scrollbar.pack(side="right", fill="y")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    frame = tk.Frame(canvas)
+    canvas.create_window((0, 0), window=frame, anchor="nw")
+
+    tk.Label(frame, text="Starting Cities Skylines Mod Compatibility Checker...", wraplength=280).pack()
+    canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+
+    tkinter_info = [frame, canvas, window, config_label_vars, button_frame]
+
+    window.update()
+    load_config(tkinter_info)
+    window.mainloop()
 
 
 if __name__ == "__main__":
-    FlaskUI(app=app, server="fastapi", width=400, height=300).run()
-    # try:
-    #    log.info('Starting Local Server on 127.0.0.1:64839')
-    #    uvicorn.run(app, host="127.0.0.1", port=64839)
-    # except KeyboardInterrupt:
-    #    log.warn("Shutting down...")
-    #    sys.exit("Process Closed")
-    # except:
-    #    log.fail('Port in use! trying again...')
-    #    log.info('Starting Local Server on 127.0.0.1:64457')
-    #    uvicorn.run(app, host="127.0.0.1", port=64457)
+    create_window()
