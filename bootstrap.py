@@ -14,7 +14,7 @@ import csv
 import vdf
 import os
 
-VERSION = "v010-DEBUGBuild?"
+VERSION = "v011-DEBUGBuild?"
 config = configparser.RawConfigParser()
 now = datetime.now()
 dt = now.strftime("%d/%m/%Y %H:%M:%S")
