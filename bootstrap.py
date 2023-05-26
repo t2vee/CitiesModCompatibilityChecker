@@ -15,7 +15,7 @@ import csv
 import vdf
 import os
 
-VERSION = "v011-DEBUGBuild?"
+VERSION = "v022-DEBUGBuild"
 config = configparser.RawConfigParser()
 now = datetime.now()
 dt = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -251,7 +251,7 @@ def cancel_mod_checker():
     sys.exit('Cancelling...')
 
 
-def view_report_window(args):
+def view_report_window():
     report_window = tk.Toplevel()
     report_window.title(f"Compatibility Report - {dt}")
     report_window.geometry("1000x600")
@@ -277,8 +277,9 @@ def view_report_window(args):
             mod_name = mod_info["mod_name"]
             reason = mod_info["reason"]
             tree.insert(category_id, "end", text=mod_id, values=(link, mod_name, reason))
+
     def callback(event):
-        tree = event.widget  # get the treeview widget
+        tree = event.widget
         region = tree.identify_region(event.x, event.y)
         col = tree.identify_column(event.x)
         iid = tree.identify('item', event.x, event.y)
@@ -377,9 +378,6 @@ def gen_view_report_link(args):
             pass
         ttk.Button(args[1], text="view report", command=lambda: view_report_window(args),
                    name="view_report_link").pack(anchor="w")
-        # view_report = tk.Label(args[1], text="view report", cursor="hand2", name="view_report_link")
-        # view_report.pack(side="bottom", anchor="w")
-        # view_report.bind("<Button-1>", lambda event: show_help())
 
 
 def show_help():
@@ -445,9 +443,6 @@ def create_window():
 
     ttk.Button(button_frame, text="Close", command=cancel_mod_checker).pack(side="bottom", anchor="w")
     tk.Label(button_frame, text="Version: " + VERSION).pack(side="bottom", anchor="w")
-    # site = tk.Label(window, text="t2v @ 2023", cursor="hand2")
-    # site.pack(side="bottom", anchor="w")
-    # site.bind("<Button-1>", lambda: open_link("https://t2v.city"))
     help = tk.Label(window, text="Need Help?", cursor="hand2")
     help.pack(side="bottom", anchor="w")
     help.bind("<Button-1>", lambda event: show_help())
