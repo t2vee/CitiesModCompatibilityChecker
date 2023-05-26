@@ -8,6 +8,7 @@ import webbrowser
 import winreg
 import shutil
 import gdown
+import json
 import time
 import sys
 import csv
@@ -158,17 +159,13 @@ def compare_mods(args, progressbar):
     mod_list_csv_names = [path_str.replace(".csv", ".Incompatible_Mods.csv"), path_str.replace(".csv", ".Broken.csv"),
                           path_str.replace(".csv", ".Dependency_Mods_For_Saves.csv"),
                           path_str.replace(".csv", ".Game_Breaking_Assets_.csv")]
-    print(mod_list_csv_names)
     for fn in os.listdir(config_path):
         if 'patch' in fn.lower():
             print(fn)
             add_line("Found Patch Specific Mod List. Adding...", args)
             mod_list_csv_names.append(os.path.join(config_path, fn))
-    print(mod_list_csv_names)
-
     final_compat_check_list = []
     for mod_list in mod_list_csv_names:
-        print(mod_list)
         csv_ids = []
         add_line("Grabbing csv File...", args)
         with open(mod_list, 'r', encoding='utf-8') as csv_file:
@@ -186,8 +183,45 @@ def compare_mods(args, progressbar):
         final_compat_check_list.append(compat_array)
     add_line("Mod Compatibility Checks Completed.", args)
     add_line("Generating Report Now...", args)
-
-
+    mod_links = {}
+    for item in final_compat_check_list:
+        file_name = item[0]
+        mod_ids = item[1:]
+        add_line("Filtering Results...", args)
+        if mod_ids:
+            with open(file_name, 'r') as csv_file:
+                add_line("Opening CSV for Mod Info...", args)
+                reader = csv.reader(csv_file)
+                next(reader)
+                section_name = file_name.split('/')[-1].split('.')[-2]
+                add_line("Sectioning Data...", args)
+                section_data = {}
+                add_line("Gathering Mod Information...", args)
+                for row in reader:
+                    mod_id = row[3]
+                    link = row[5]
+                    mod_name = row[1]
+                    reason = row[7]
+                    progressbar.step(5)
+                    progressbar.update()
+                    if mod_id in mod_ids:
+                        section_data[mod_id] = {'link': link, 'mod_name': mod_name, 'reason': reason}
+                mod_links[section_name] = section_data
+        progressbar.step(30)
+        progressbar.update()
+        add_line("Completed. Packing into JSON...", args)
+    jd = json.dumps(mod_links, indent=4)
+    progressbar.step(10)
+    progressbar.update()
+    json_path = os.path.join(config_path, f"CitiesModCompatibilityReport.json")
+    add_line("Saving to CitiesModCompatibilityReport.json", args)
+    if os.path.exists(json_path):
+        os.remove(json_path)
+    with open(json_path, 'w') as f:
+        f.write(jd)
+    progressbar["value"] = 100
+    progressbar.update()
+    add_line("Report Generation Complete.", args)
 
 
 def report_generation_window(args):
@@ -202,10 +236,57 @@ def report_generation_window(args):
     progressbar.pack()
     progressbar["value"] = 0
     compare_mods(args, progressbar)
+    messagebox.showinfo("Information", "Report Generation is Now Complete. You can view it from either the 'view "
+                                       "report' button or by opening the report json file on at "
+                                       "https://cities-report.t2v.city")
+    rg_window.destroy()
+    config.read(config_file_path)
+    config.set('ProgramFiles', 'json_report', './CitiesModCompatibilityReport.json')
+    with open(config_file_path, 'w') as f:
+        config.write(f)
+    load_config(args)
 
 
 def cancel_mod_checker():
     sys.exit('Cancelling...')
+
+
+def view_report_window(args):
+    report_window = tk.Toplevel()
+    report_window.title(f"Compatibility Report - {dt}")
+    report_window.geometry("1000x600")
+    with open(str(config.get('ProgramFiles', 'json_report').replace("./", f"{config_path}/")), 'r') as f:
+        json_data = json.load(f)
+    tree = ttk.Treeview(report_window)
+    tree.pack(fill="both", expand=True)
+    tree["columns"] = ("link", "mod_name", "reason")
+    tree.column("#0", width=100, minwidth=100)
+    tree.column("link", width=200, minwidth=200)
+    tree.column("mod_name", width=200, minwidth=200)
+    tree.column("reason", width=300, minwidth=300)
+    tree.heading("#0", text="Mod ID")
+    tree.heading("link", text="Link")
+    tree.heading("mod_name", text="Mod Name")
+    tree.heading("reason", text="Reason")
+
+    for category, mods in json_data.items():
+        category_id = category.replace(" ", "_").replace("(", "").replace(")", "")
+        tree.insert("", "end", category_id, text=category)
+        for mod_id, mod_info in mods.items():
+            link = mod_info["link"]
+            mod_name = mod_info["mod_name"]
+            reason = mod_info["reason"]
+            tree.insert(category_id, "end", text=mod_id, values=(link, mod_name, reason))
+    def callback(event):
+        tree = event.widget  # get the treeview widget
+        region = tree.identify_region(event.x, event.y)
+        col = tree.identify_column(event.x)
+        iid = tree.identify('item', event.x, event.y)
+        if region == 'cell' and col == '#1':
+            link = tree.item(iid)['values'][0]
+            webbrowser.open_new_tab(link)
+
+    tree.bind("<Button-1>", callback)
 
 
 def create_config(args):
@@ -218,7 +299,7 @@ def create_config(args):
     config.set('ProgramFiles', 'modlist_path', "Not Generated Yet")
     config.set('ProgramFiles', 'cities_mod_csv', "Not Generated Yet")
     config.set('ProgramFiles', 'debug_log_path', "./debug.log")
-
+    config.set('ProgramFiles', 'json_report', "Not Generated Yet")
     with open(config_file_path, 'w') as f:
         config.write(f)
     with open(config_file_path, 'r') as original:
@@ -248,11 +329,12 @@ def load_config(args):
                     f.close()
                 add_line("ClientConfig.ini Loaded.", args)
                 gen_compare_mods_button(args)
+                gen_view_report_link(args)
             except configparser.NoSectionError:
                 add_line("Config File is wrong or Corrupt. Attempting Fix...", args)
                 create_config(args)
             except Exception:
-                add_line("Failed to open config file. Permissions?", args)
+                add_line("Failed to load config file. Try clearing data.", args)
                 pass
         else:
             add_line("ClientConfig.ini Not Found.", args)
@@ -282,6 +364,22 @@ def gen_compare_mods_button(args):
         except KeyError:
             pass
         tk.Label(args[4], textvariable=args[3][2], name="generating_loader").pack(anchor="w")
+
+
+def gen_view_report_link(args):
+    config.read(config_file_path)
+    if config.get('ProgramFiles', 'json_report') != "Not Generated Yet":
+        try:
+            eb = args[4].nametowidget("view_report_link")
+            if eb:
+                eb.destroy()
+        except KeyError:
+            pass
+        ttk.Button(args[1], text="view report", command=lambda: view_report_window(args),
+                   name="view_report_link").pack(anchor="w")
+        # view_report = tk.Label(args[1], text="view report", cursor="hand2", name="view_report_link")
+        # view_report.pack(side="bottom", anchor="w")
+        # view_report.bind("<Button-1>", lambda event: show_help())
 
 
 def show_help():
