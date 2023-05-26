@@ -5,7 +5,6 @@ import tkinter as tk
 import pandas as pd
 import configparser
 import webbrowser
-import threading
 import winreg
 import shutil
 import gdown
@@ -113,14 +112,18 @@ def run_mod_list_downloader(args):
         add_line("You can download an updated csv at https://pdxint.at/BrokenModCS", args)
         args[3][0].set("Failed to Download.")
         return None
-    add_line("Converting xlsx File to csv...", args)
-    if os.path.exists(xlsx_path.replace("xlsx", "csv")):
-        add_line("Old Version Found. Deleting...", args)
-        os.remove(xlsx_path.replace("xlsx", "csv"))
+    add_line("Converting xlsx File to csv Files...", args)
     try:
-        f = pd.read_excel(xlsx_path)
-        f.to_csv(xlsx_path.replace("xlsx", "csv"), index=False)
+        xlf = pd.ExcelFile(xlsx_path)
+        for page in xlf.sheet_names:
+            if os.path.exists(xlsx_path.replace("xlsx", f"{page}.csv")):
+                add_line("Old Version Found. Deleting...", args)
+                os.remove(xlsx_path.replace("xlsx", f"{page}.csv"))
+            df = xlf.parse(page)
+            df.to_csv(xlsx_path.replace("xlsx", f"{page.replace(' ', '_')}.csv"), index=False)
+        xlf.close()
         if os.path.exists(xlsx_path):
+            time.sleep(1)
             add_line("Deleting Old xlsx File...", args)
             os.remove(xlsx_path)
         add_line("Converted xlsx File to csv.", args)
@@ -134,7 +137,7 @@ def run_mod_list_downloader(args):
         add_line("Mod List Spreadsheet Updated Successfully.", args)
     except Exception as e:
         print(e)
-        add_line("Failed to Convert xlsx File to csv. Permissions?", args)
+        add_line("Failed to Convert xlsx File to csv. Try Again?", args)
         args[3][0].set("Failed to Download.")
 
 
@@ -148,26 +151,44 @@ def compare_mods(args, progressbar):
     progressbar.update()
     with open(str(config.get('ProgramFiles', 'modlist_path').replace("./", f"{config_path}/")), 'r') as txt_file:
         txt_ids = [line.strip() for line in txt_file]
-    csv_ids = []
     progressbar.step(10)
     progressbar.update()
-    add_line("Grabbing CSV Mod List...", args)
-    with open(str(config.get('ProgramFiles', 'cities_mod_csv').replace("./", f"{config_path}/")), 'r') as csv_file:
-        reader = csv.reader(csv_file)
-        for row in reader:
-            progressbar.step(2)
-            progressbar.update()
-            csv_ids.append(row[3])
-    add_line("Checking for Incompatible Mods...", args)
-    progressbar.step(30)
-    progressbar.update()
-    completely_incompatible_mod_ids = list(set(txt_ids) & set(csv_ids))
-    progressbar['value'] = 100
-    progressbar.update()
+    add_line("Gathering csv Mod Lists...", args)
+    path_str = str(config.get('ProgramFiles', 'cities_mod_csv').replace("./", f"{config_path}/"))
+    mod_list_csv_names = [path_str.replace(".csv", ".Incompatible_Mods.csv"), path_str.replace(".csv", ".Broken.csv"),
+                          path_str.replace(".csv", ".Dependency_Mods_For_Saves.csv"),
+                          path_str.replace(".csv", ".Game_Breaking_Assets_.csv")]
+    print(mod_list_csv_names)
+    for fn in os.listdir(config_path):
+        if 'patch' in fn.lower():
+            print(fn)
+            add_line("Found Patch Specific Mod List. Adding...", args)
+            mod_list_csv_names.append(os.path.join(config_path, fn))
+    print(mod_list_csv_names)
+
+    final_compat_check_list = []
+    for mod_list in mod_list_csv_names:
+        print(mod_list)
+        csv_ids = []
+        add_line("Grabbing csv File...", args)
+        with open(mod_list, 'r', encoding='utf-8') as csv_file:
+            reader = csv.reader(csv_file)
+            for row in reader:
+                progressbar.step(5)
+                progressbar.update()
+                csv_ids.append(row[3])
+        add_line("Comparing...", args)
+        compat_array = list(set(txt_ids) & set(csv_ids))
+        compat_array.insert(0, mod_list)
+        progressbar.step(10)
+        progressbar.update()
+        add_line("Check Completed. Adding...", args)
+        final_compat_check_list.append(compat_array)
+    add_line("Mod Compatibility Checks Completed.", args)
+    add_line("Generating Report Now...", args)
 
 
-# for id in completely_incompatible_mod_ids:
-#    print(id)
+
 
 def report_generation_window(args):
     rg_window = tk.Toplevel()
@@ -270,7 +291,7 @@ def show_help():
                                 'complete.\n 3. CMC should automatically refresh the '
                                 'configuration but in the case it doesnt, '
                                 'press "Refresh Config".\n4. You should now see a '
-                                '"Compare Mods" button, click that to compare your '
+                                '"Generate Report" button, click that to compare your '
                                 'mods.\n5. You can check the Mods Compatibilty Report '
                                 'by hitting the "view report" link.')
 
