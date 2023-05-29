@@ -1,3 +1,5 @@
+from fastapi import FastAPI, Request
+import uvicorn
 from tkinter import messagebox
 from datetime import datetime
 from tkinter import ttk
@@ -5,9 +7,11 @@ import tkinter as tk
 import pandas as pd
 import configparser
 import webbrowser
+import threading
 import winreg
 import shutil
 import gdown
+import json5
 import json
 import time
 import sys
@@ -16,6 +20,7 @@ import vdf
 import os
 
 VERSION = "v022-DEBUGBuild"
+ENABLE_CONSOLE_GARBAGE = True
 config = configparser.RawConfigParser()
 now = datetime.now()
 dt = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -23,9 +28,78 @@ config_path = f"{os.environ['APPDATA']}/CitiesModCompatibilityChecker"
 config_file_path = os.path.join(f"{os.environ['APPDATA']}/CitiesModCompatibilityChecker", "ClientConfig.ini")
 
 
+class FastAPISettings:
+    def __init__(self):
+        self.api_version = "v1"
+        self.api_name = "my_api"
+        self.db = "some db"
+        self.logger = "configured logger"
+        self.DEBUG = True
+
+
+class FastAPIWebReportViewer:
+    def __init__(self, settings):
+        self.settings = settings
+        self._fastapi = FastAPI(
+            version=self.settings.api_version,
+        )
+        self._fastapi.add_api_route(
+            path="/keepalive",
+            endpoint=self.keepalive,
+            methods=["GET"]
+        )
+
+        thread = threading.Thread(target=self.run, args=())
+        thread.daemon = True
+        thread.start()
+
+    async def keepalive(self, request: Request):
+        return {"message": "server is running!",
+                "referer": f"{request.client.host}:{request.client.port}" if request.client.port else request.client.host}
+
+    def __getattr__(self, attr):
+        if hasattr(self._fastapi, attr):
+            return getattr(self._fastapi, attr)
+        else:
+            raise AttributeError(f"{attr} not exist")
+
+    async def __call__(self, *args, **kwargs):
+        return await self._fastapi(*args, **kwargs)
+
+    def run(self):
+        while True:
+            uvicorn.run(self._fastapi, host="127.0.0.1", port=8000)
+
+
+class bcolors:
+    HEADER = "\033[95m"
+    OKBLUE = "\033[94m"
+    OKCYAN = "\033[96m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+    UNDERLINE = "\033[4m"
+
+
+def clog(text, variable):
+    if ENABLE_CONSOLE_GARBAGE:
+        print(f"========== START PRINT-DEBUG FOR {variable} ==========\n"
+        )
+        print(
+            "LOG_LEVEL: [DEBUG] LOG_TYPE: [DEVELOPMENT] "
+            + f"{bcolors.BOLD}{text}{bcolors.ENDC}\n"
+        )
+        print(f"========== END PRINT-DEBUG FOR {variable} ==========\n"
+        )
+    pass
+
+
 def add_line(text, args):
-    time.sleep(0.1)
+    # time.sleep(0.1)
     tk.Label(args[0], text=text, wraplength=280).pack()
+    print(f"DEBUG: {text}")
     args[0].update_idletasks()
     args[1].configure(scrollregion=args[1].bbox("all"))
     args[1].yview_moveto(1)
@@ -156,7 +230,7 @@ def compare_mods(args, progressbar):
     progressbar.update()
     add_line("Gathering csv Mod Lists...", args)
     path_str = str(config.get('ProgramFiles', 'cities_mod_csv').replace("./", f"{config_path}/"))
-    mod_list_csv_names = [path_str.replace(".csv", ".Incompatible_Mods.csv"), path_str.replace(".csv", ".Broken.csv"),
+    mod_list_csv_names = [path_str.replace(".csv", ".Broken.csv"),
                           path_str.replace(".csv", ".Dependency_Mods_For_Saves.csv"),
                           path_str.replace(".csv", ".Game_Breaking_Assets_.csv")]
     for fn in os.listdir(config_path):
@@ -209,7 +283,43 @@ def compare_mods(args, progressbar):
                 mod_links[section_name] = section_data
         progressbar.step(30)
         progressbar.update()
-        add_line("Completed. Packing into JSON...", args)
+    add_line("Starting Incompatible Mods Check...", args)
+    with open(path_str.replace(".csv", ".Incompatible_Mods.csv"), 'r') as file:
+        reader = csv.reader(file)
+        headers = next(reader)
+        rows = list(reader)
+        progressbar.step(10)
+        progressbar.update()
+    pairs = []
+    add_line("Sectioning Data...", args)
+    for row in rows:
+        row_pair = [str(row[3]), str(row[7]), str(row[1]), str(row[5]), [str(row[9])]]
+        pairs.append(row_pair)
+    matching_pairs = []
+    progressbar.step(10)
+    progressbar.update()
+    add_line("Comparing Pairs...", args)
+    for pair in pairs:
+        if pair[1] in txt_ids and pair[0] in txt_ids:
+            matching_pairs.append(pair)
+    progressbar.step(10)
+    progressbar.update()
+    output_pairs = []
+    for pair in matching_pairs:
+        add_line("Formatting Data...", args)
+        output_pair = {
+            "Mod 1": pair[2],
+            "Mod 1 Steam ID": pair[0],
+            "Mod 2": pair[3],
+            "Mod 2 Steam ID": pair[1],
+            "Issue": pair[4]
+        }
+        output_pairs.append(output_pair)
+    progressbar.step(10)
+    progressbar.update()
+    add_line("Packing into JSON...", args)
+    ijd = json.dumps(output_pairs, indent=4)
+    add_line("Completed. Packing All Data Into JSON...", args)
     jd = json.dumps(mod_links, indent=4)
     progressbar.step(10)
     progressbar.update()
@@ -218,6 +328,9 @@ def compare_mods(args, progressbar):
     if os.path.exists(json_path):
         os.remove(json_path)
     with open(json_path, 'w') as f:
+        f.write("// INCOMPATIBLE MODS LIST DATA\n")
+        f.write(ijd + "\n")
+        f.write("// ETC MODS LIST DATA\n")
         f.write(jd)
     progressbar["value"] = 100
     progressbar.update()
@@ -251,12 +364,12 @@ def cancel_mod_checker():
     sys.exit('Cancelling...')
 
 
-def view_report_window():
+def view_report_window(args):
+    add_line("Loading Report Window...", args)
     report_window = tk.Toplevel()
     report_window.title(f"Compatibility Report - {dt}")
     report_window.geometry("1000x600")
-    with open(str(config.get('ProgramFiles', 'json_report').replace("./", f"{config_path}/")), 'r') as f:
-        json_data = json.load(f)
+    add_line("Generating Data First Tree...", args)
     tree = ttk.Treeview(report_window)
     tree.pack(fill="both", expand=True)
     tree["columns"] = ("link", "mod_name", "reason")
@@ -268,8 +381,40 @@ def view_report_window():
     tree.heading("link", text="Link")
     tree.heading("mod_name", text="Mod Name")
     tree.heading("reason", text="Reason")
-
-    for category, mods in json_data.items():
+    add_line("Opening JSON Report...", args)
+    with open(str(config.get('ProgramFiles', 'json_report').replace("./", f"{config_path}/")), 'r') as f:
+        json_data = f.read()
+        json_lines = json_data.splitlines()
+    add_line("Formatting Loaded Data...", args)
+    incompatible_start = json_lines.index("// INCOMPATIBLE MODS LIST DATA")
+    etc_start = json_lines.index("// ETC MODS LIST DATA")
+    incompatible_json_data = "\n".join(json_lines[incompatible_start + 1:etc_start])
+    etc_json_data = "\n".join(json_lines[etc_start + 1:])
+    add_line("Loading Formatted JSON Data...", args)
+    incompatible_data = json5.loads(incompatible_json_data)
+    etc_data = json5.loads(etc_json_data)
+    tree_incompat = ttk.Treeview(report_window)
+    tree_incompat.pack(fill="both", expand=True)
+    tree_incompat["columns"] = ("mod_1", "mod_2_id", "mod_2", "issue")
+    tree_incompat.column("#0", width=100, minwidth=100)
+    tree_incompat.column("mod_2_id", width=100, minwidth=100)
+    tree_incompat.column("mod_1", width=200, minwidth=200)
+    tree_incompat.column("mod_2", width=200, minwidth=200)
+    tree_incompat.column("issue", width=300, minwidth=300)
+    tree_incompat.heading("mod_1", text="Mod 1")
+    tree_incompat.heading("#0", text="Mod 1 Steam ID")
+    tree_incompat.heading("mod_2", text="Mod 2")
+    tree_incompat.heading("mod_2_id", text="Mod 2 Steam ID")
+    tree_incompat.heading("issue", text="Issue")
+    tree_incompat.insert("", "end", "Incompatible_Mods", text="Incompatible Mods")
+    for mod_data in incompatible_data:
+        mod1 = mod_data["Mod 1"]
+        mod1_id = mod_data["Mod 1 Steam ID"]
+        mod2 = mod_data["Mod 2"]
+        mod2_id = mod_data["Mod 2 Steam ID"]
+        issue = mod_data["Issue"][0]
+        tree_incompat.insert("Incompatible_Mods", "end", text=mod1_id, values=(mod1, mod2_id, mod2, issue))
+    for category, mods in etc_data.items():
         category_id = category.replace(" ", "_").replace("(", "").replace(")", "")
         tree.insert("", "end", category_id, text=category)
         for mod_id, mod_info in mods.items():
@@ -388,7 +533,7 @@ def show_help():
                                 'configuration but in the case it doesnt, '
                                 'press "Refresh Config".\n4. You should now see a '
                                 '"Generate Report" button, click that to compare your '
-                                'mods.\n5. You can check the Mods Compatibilty Report '
+                                'mods.\n5. You can check the Mods Compatibility Report '
                                 'by hitting the "view report" link.')
 
 
@@ -417,7 +562,8 @@ def create_window():
     window.title("CitiesModChecker - t2v.city @ 2023")
     window.geometry("450x300")
     window.resizable(False, False)
-
+    window.iconbitmap("favicon.ico")
+    #window.iconbitmap("icon.ico")
     button_frame = tk.Frame(window)
     button_frame.pack(side="left", fill="y")
 
@@ -461,6 +607,8 @@ def create_window():
     tkinter_info = [frame, canvas, window, config_label_vars, button_frame]
 
     window.update()
+    settings = FastAPISettings()
+    app = FastAPIWebReportViewer(settings)
     load_config(tkinter_info)
     window.mainloop()
 
